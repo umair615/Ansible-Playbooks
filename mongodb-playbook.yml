@@ -1,0 +1,83 @@
+---
+- name: Install MongoDB versions 8, 7, and 6 on Ubuntu Noble/Jammy/Focal
+  hosts: all
+  become: true
+  tasks:
+    # Import MongoDB GPG key for version 8.0
+    - name: Import MongoDB 8 GPG public key
+      apt_key:
+        url: "https://www.mongodb.org/static/pgp/server-8.0.asc"
+        state: present
+
+    # Add MongoDB 8 repository
+    - name: Add MongoDB 8 repository
+      apt_repository:
+        repo: "deb http://repo.mongodb.org/apt/ubuntu {{ ansible_distribution_release | lower }}/mongodb-org/8.0 multiverse"
+        state: present
+        filename: "mongodb-org-8.0"
+
+    # Install MongoDB 8
+    - name: Install MongoDB 8
+      apt:
+        name: mongodb-org=8.0.*
+        state: present
+        update_cache: yes
+
+    - name: Ensure MongoDB 8 is started and enabled
+      service:
+        name: mongod
+        state: started
+        enabled: yes
+
+    # Import MongoDB GPG key for version 7.0
+    - name: Import MongoDB 7 GPG public key
+      apt_key:
+        url: "https://www.mongodb.org/static/pgp/server-7.0.asc"
+        state: present
+
+    # Add MongoDB 7 repository
+    - name: Add MongoDB 7 repository
+      apt_repository:
+        repo: "deb http://repo.mongodb.org/apt/ubuntu {{ ansible_distribution_release | lower }}/mongodb-org/7.0 multiverse"
+        state: present
+        filename: "mongodb-org-7.0"
+
+    # Install MongoDB 7
+    - name: Install MongoDB 7
+      apt:
+        name: mongodb-org=7.0.*
+        state: present
+        update_cache: yes
+        allow_downgrade: yes
+
+    - name: Ensure MongoDB 7 is started and enabled
+      service:
+        name: mongod
+        state: started
+        enabled: yes
+
+    # Import MongoDB GPG key for version 6.0
+    - name: Import MongoDB 6 GPG public key
+      apt_key:
+        url: "https://www.mongodb.org/static/pgp/server-6.0.asc"
+        state: present
+
+    # Add MongoDB 6 repository
+    - name: Add MongoDB 6 repository
+      apt_repository:
+        repo: "deb http://repo.mongodb.org/apt/ubuntu {{ ansible_distribution_release | lower }}/mongodb-org/6.0 multiverse"
+        state: present
+        filename: "mongodb-org-6.0"
+
+    # Install MongoDB 6
+    - name: Install MongoDB 6
+      apt:
+        name: mongodb-org=6.0.*
+        state: present
+        update_cache: yes
+        allow_downgrade: yes
+    - name: Ensure MongoDB 6 is started and enabled
+      service:
+        name: mongod
+        state: started
+        enabled: yes
