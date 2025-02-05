@@ -1,0 +1,43 @@
+---
+- name: Install MongoDB on Ubuntu
+  hosts: all
+  become: yes
+  vars:
+    # Define the MongoDB version to install (default is 8.0, can be changed dynamically)
+    mongodb_version: "8.0"
+  
+  tasks:
+    - name: Add MongoDB GPG key
+      apt_key:
+        url: "https://www.mongodb.org/static/pgp/server-{{ mongodb_version }}.asc"
+        state: present
+        validate_certs: yes
+
+    - name: Determine Ubuntu release codename
+      shell: lsb_release -c | awk '{print $2}'
+      register: ubuntu_release
+      changed_when: false
+
+    - name: Add MongoDB repository for the corresponding Ubuntu release and version
+      apt_repository:
+        repo: "deb https://repo.mongodb.org/apt/ubuntu {{ ubuntu_release.stdout }}/mongodb-org/{{ mongodb_version }} multiverse"
+        state: present
+        filename: "mongodb-org"
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install MongoDB packages
+      apt:
+        name:
+          - mongodb-org
+        state: present
+
+    - name: Start and enable MongoDB service
+      systemd:
+        name: mongod
+        enabled: yes
+        state: started
+
+    
