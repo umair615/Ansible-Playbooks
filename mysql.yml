@@ -1,0 +1,74 @@
+---
+- name: Install MySQL 5.7 on Ubuntu
+  hosts: all
+  become: yes
+  vars:
+    mysql_public_key: B7B3B788A8D3785C  # Variable for the MySQL public key
+
+  tasks:
+    - name: Ensure system is up-to-date
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600  # 1 hour
+    
+    - name: Install wget if not present
+      apt:
+        name: wget
+        state: present
+
+    - name: Download MySQL APT Config repository package
+      get_url:
+        headers:
+          user-agent: curl/7.81.0  
+        url: https://dev.mysql.com/get/mysql-apt-config_0.8.17-1_all.deb
+        dest: /tmp/mysql-apt-config_0.8.17-1_all.deb
+
+    - name: Install MySQL APT Config repository
+      command:
+        cmd: dpkg -i /tmp/mysql-apt-config_0.8.17-1_all.deb
+        creates: /etc/apt/sources.list.d/mysql.list  # Check if MySQL repo already exists
+
+    - name: Configure MySQL apt repository (manual prompt simulation)
+      debconf:
+        name: mysql-apt-config
+        question: 'mysql-apt-config/select-product'
+        value: 'mysql-5.7'
+        vtype: select
+
+    - name: Update apt cache after adding MySQL repository
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Add MySQL public key to apt keyring
+      apt_key:
+        keyserver: keyserver.ubuntu.com
+        id: "{{ mysql_public_key }}"
+        state: present
+
+    - name: Install MySQL client 5.7
+      apt:
+        name: mysql-client=5.7.42-1ubuntu18.04
+        state: present
+
+    - name: Install MySQL community server 5.7
+      apt:
+        name: mysql-community-server=5.7.42-1ubuntu18.04
+        state: present
+
+    - name: Install MySQL server 5.7
+      apt:
+        name: mysql-server=5.7.42-1ubuntu18.04
+        state: present
+
+    - name: Fix broken dependencies if necessary
+      apt:
+        name: mysql-client=5.7.42-1ubuntu18.04
+        state: present
+        force: yes
+
+    - name: Ensure MySQL service is started and enabled
+      service:
+        name: mysql
+        state: started
+        enabled: yes
