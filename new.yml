@@ -1,0 +1,250 @@
+---
+- name: Setup WordPress with Nginx, Varnish, Apache, PHP, and MySQL
+  hosts: all
+  become: true
+  vars:
+    jinja2_install: true
+    template_dir: "/etc/ansible/templates"  # The directory for storing templates
+    nginx_conf_file: "nginx.conf.j2"
+    varnish_conf_file: "varnish.vcl.j2"
+    apache_conf_file: "apache.conf.j2"
+    wordpress_db_name: "wordpress_db"
+    wordpress_db_user: "wordpress_user"
+    wordpress_db_password: "wordpress_password"
+    wordpress_db_host: "localhost"
+    wordpress_db_root_password: "root_password"
+    wordpress_dir: "/var/www/wordpress"
+    php_version: "7.4"  # Set PHP version to 7.4 (or use 7.0, 7.2, 7.3, etc.)
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install required packages
+      apt:
+        name:
+          - nginx
+          - apache2
+          - varnish
+          - mysql-server
+          - mysql-client
+          - php{{ php_version }}
+          - php{{ php_version }}-cli
+          - php{{ php_version }}-fpm
+          - php{{ php_version }}-mysql
+          - php{{ php_version }}-gd
+          - php{{ php_version }}-mbstring
+          - php{{ php_version }}-xml
+          - php{{ php_version }}-curl
+          - unzip
+          - python-jinja2  # Install Jinja2
+        state: present
+
+    - name: Start and enable Nginx
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Start and enable Apache
+      systemd:
+        name: apache2
+        state: started
+        enabled: yes
+
+    - name: Start and enable Varnish
+      systemd:
+        name: varnish
+        state: started
+        enabled: yes
+
+    - name: Start and enable MySQL
+      systemd:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: Set up MySQL root password
+      mysql_user:
+        name: root
+        password: "{{ wordpress_db_root_password }}"
+        host_all: yes
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        state: present
+
+    - name: Create WordPress database
+      mysql_db:
+        name: "{{ wordpress_db_name }}"
+        state: present
+        login_user: root
+        login_password: "{{ wordpress_db_root_password }}"
+
+    - name: Create WordPress database user
+      mysql_user:
+        name: "{{ wordpress_db_user }}"
+        password: "{{ wordpress_db_password }}"
+        priv: "{{ wordpress_db_name }}.*:ALL"
+        state: present
+        login_user: root
+        login_password: "{{ wordpress_db_root_password }}"
+
+    - name: Download WordPress
+      get_url:
+        url: https://wordpress.org/latest.tar.gz
+        dest: /tmp/wordpress.tar.gz
+
+    - name: Extract WordPress
+      unarchive:
+        src: /tmp/wordpress.tar.gz
+        dest: /var/www/
+        remote_src: yes
+
+    - name: Set proper permissions for WordPress
+      file:
+        path: "{{ wordpress_dir }}"
+        owner: www-data
+        group: www-data
+        recurse: yes
+
+    - name: Install Jinja2
+      apt:
+        name: python-jinja2
+        state: present
+      when: jinja2_install
+
+    - name: Create the template directory if it doesn't exist
+      file:
+        path: "{{ template_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Create nginx.conf.j2 template file
+      copy:
+        content: |
+          server {
+              listen 80;
+              server_name example.com;
+
+              root /var/www/wordpress;
+              index index.php index.html index.htm;
+
+              location / {
+                  try_files $uri $uri/ =404;
+              }
+
+              location ~ \.php$ {
+                  include snippets/fastcgi-php.conf;
+                  fastcgi_pass unix:/var/run/php/php7.4-fpm.sock;
+                  fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                  include fastcgi_params;
+              }
+          }
+        dest: "{{ template_dir }}/{{ nginx_conf_file }}"
+        mode: '0644'
+
+    - name: Create varnish.vcl.j2 template file
+      copy:
+        content: |
+          vcl 4.0;
+
+          backend default {
+              .host = "127.0.0.1";
+              .port = "8080";  # Port where Apache will be running
+          }
+
+          sub vcl_recv {
+              if (req.url ~ "^/wp-admin|wp-login.php") {
+                  return (pass);
+              }
+          }
+
+          sub vcl_backend_response {
+              if (bereq.url ~ "^/wp-admin|wp-login.php") {
+                  set beresp.ttl = 0s;
+              }
+          }
+        dest: "{{ template_dir }}/{{ varnish_conf_file }}"
+        mode: '0644'
+
+    - name: Create apache.conf.j2 template file
+      copy:
+        content: |
+          <VirtualHost *:8080>
+              DocumentRoot /var/www/wordpress
+              ServerName example.com
+
+              <Directory /var/www/wordpress>
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+
+              ErrorLog ${APACHE_LOG_DIR}/error.log
+              CustomLog ${APACHE_LOG_DIR}/access.log combined
+          </VirtualHost>
+        dest: "{{ template_dir }}/{{ apache_conf_file }}"
+        mode: '0644'
+
+    - name: Set up Nginx configuration for WordPress
+      template:
+        src: "{{ template_dir }}/{{ nginx_conf_file }}"
+        dest: /etc/nginx/sites-available/wordpress
+      notify:
+        - Reload Nginx
+
+    - name: Enable the Nginx configuration
+      command: nginx -t && ln -s /etc/nginx/sites-available/wordpress /etc/nginx/sites-enabled/
+      args:
+        removes: /etc/nginx/sites-enabled/wordpress
+      notify:
+        - Reload Nginx
+
+    - name: Set up Varnish configuration
+      template:
+        src: "{{ template_dir }}/{{ varnish_conf_file }}"
+        dest: /etc/varnish/default.vcl
+      notify:
+        - Reload Varnish
+
+    - name: Set up Apache configuration for WordPress
+      template:
+        src: "{{ template_dir }}/{{ apache_conf_file }}"
+        dest: /etc/apache2/sites-available/wordpress.conf
+      notify:
+        - Reload Apache
+
+    - name: Enable the Apache configuration
+      command: a2ensite wordpress.conf
+      notify:
+        - Reload Apache
+
+    - name: Reload Nginx
+      systemd:
+        name: nginx
+        state: reloaded
+
+    - name: Reload Apache
+      systemd:
+        name: apache2
+        state: reloaded
+
+    - name: Reload Varnish
+      systemd:
+        name: varnish
+        state: reloaded
+
+  handlers:
+    - name: Reload Nginx
+      systemd:
+        name: nginx
+        state: reloaded
+
+    - name: Reload Apache
+      systemd:
+        name: apache2
+        state: reloaded
+
+    - name: Reload Varnish
+      systemd:
+        name: varnish
+        state: reloaded
