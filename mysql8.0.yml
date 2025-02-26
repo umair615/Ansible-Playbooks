@@ -1,0 +1,42 @@
+---
+- name: Install MySQL 8.0 on Ubuntu 20.04, 22.04, and 24.04
+  hosts: all
+  become: yes
+  tasks:
+
+    - name: Install required dependencies
+      apt:
+        name: ['wget', 'lsb-release', 'gnupg']
+        state: present
+        update_cache: yes
+
+    - name: Add MySQL APT repository
+      shell: |
+        wget -qO - https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | sudo apt-key add -
+        echo "deb [arch=amd64] https://repo.mysql.com/apt/ubuntu $(lsb_release -sc) mysql-8.0" | sudo tee /etc/apt/sources.list.d/mysql.list
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Update APT cache
+      apt:
+        update_cache: yes
+
+    - name: Install MySQL Server
+      apt:
+        name: mysql-server
+        state: present
+
+    - name: Ensure MySQL is started and enabled
+      service:
+        name: mysql
+        state: started
+        enabled: yes
+
+    
+
+  handlers:
+    - name: Restart MySQL
+      service:
+        name: mysql
+        state: restarted
