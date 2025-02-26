@@ -1,0 +1,190 @@
+---
+- name: Setup Web Stack (Nginx -> Varnish -> Apache2)
+  hosts: all
+  become: yes
+  tasks:
+
+    # Install Nginx
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    # Create error_pages directory
+    - name: Ensure error_pages directory exists
+      file:
+        path: /var/www/html/error_pages
+        state: directory
+        mode: '0755'
+
+    # Configure Nginx to proxy to Varnish and Apache
+    - name: Configure Nginx
+      copy:
+        dest: /etc/nginx/sites-available/default
+        content: |
+          
+              upstream backend {
+                server 127.0.0.1:6081;   # Primary: Varnish
+                server 127.0.0.1:8080 backup;   # Backup: Apache2 if Varnish fails
+              }
+              server {
+                listen 80;
+                server_name localhost;
+                location / {
+                  proxy_pass http://backend;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  # Failover to custom error page when Apache2 is down
+                  proxy_intercept_errors on;
+                  error_page 502 503 504 /502.html;
+                }
+ 
+         
+        
+                location /error_pages/502.html {
+                internal;
+                      root /var/www/html/;
+                      try_files /error_pages/502.html =502;
+                }
+              }
+            
+
+
+      notify:
+        - Restart Nginx
+
+    # Create custom error page for Apache being down
+    - name: Create custom error page for Apache being down
+      copy:
+        dest: /var/www/html/error_pages/apache_down.html
+        content: |
+          <h1> Apache Server Is Down </h1>
+
+    # Create custom error page for Varnish being down
+    - name: Create custom error page for Varnish being down
+      copy:
+        dest: /var/www/html/error_pages/502.html
+        content: |
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Apache2 is Down</title>
+          </head>
+          <body>
+              <h1>Apache2 is down. Please try again later.</h1>
+          </body>
+          </html>
+
+    # Create PHP info page
+    - name: Create PHP info page
+      copy:
+        dest: /var/www/html/phpinfo.php
+        content: |
+          <?php
+          phpinfo();
+          ?>
+
+    # Enable and start Nginx
+    - name: Enable and start Nginx
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+
+    # Install Varnish
+    - name: Install Varnish
+      apt:
+        name: varnish
+        state: present
+        update_cache: yes
+
+    # Configure Varnish to forward requests to Apache
+    - name: Configure Varnish
+      copy:
+        dest: /etc/varnish/default.vcl
+        content: |
+          vcl 4.0;
+
+          backend apache {
+              .host = "127.0.0.1";
+              .port = "8080";
+          }
+
+          sub vcl_recv {
+              # Handle incoming requests
+          }
+
+          sub vcl_backend_error {
+              if (beresp.status == 500) {
+                  return (retry);
+              }
+              return (deliver);
+          }
+
+          sub vcl_deliver {
+              # Optionally modify response headers or log actions
+          }
+
+    # Enable and start Varnish
+    - name: Enable and start Varnish
+      service:
+        name: varnish
+        state: started
+        enabled: yes
+
+
+    # Install Apache2
+    - name: Install Apache2
+      apt:
+        name: apache2
+        state: present
+        update_cache: yes
+
+    # Enable PHP and Apache modules
+    - name: Enable PHP and Apache modules
+      apt:
+        name:
+          - libapache2-mod-php
+          - php
+        state: present
+
+    # Configure Apache2 to serve PHP info page
+    - name: Configure Apache2 for PHP info page
+      copy:
+        dest: /etc/apache2/sites-available/000-default.conf
+        content: |
+          <VirtualHost *:8080>
+              DocumentRoot /var/www/html
+              ServerName localhost
+
+              # Enable PHP
+              <Directory /var/www/html>
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+          </VirtualHost>
+
+    # Ensure Apache2 is listening on port 8080
+    - name: Ensure Apache2 is listening on port 8080
+      copy:
+        dest: /etc/apache2/ports.conf
+        content: |
+          Listen 8080
+
+    # Enable and start Apache2
+    - name: Enable and start Apache2
+      service:
+        name: apache2
+        state: started
+        enabled: yes
+
+  handlers:
+    # Handler to restart Nginx when configuration changes
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted
