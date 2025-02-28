@@ -1,0 +1,12 @@
+---
+- name: Show all Ubuntu versions
+  hosts: all
+  gather_facts: yes
+
+  tasks:
+    - name: Check if the OS is Ubuntu
+      debug:
+        msg: "Ubuntu version: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+      when: ansible_distribution == "Ubuntu"
+
+      
